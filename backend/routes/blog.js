@@ -160,14 +160,246 @@ router.get('/all', async (req, res) => {
 router.get('/featured', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 3;
-    const blogs = await Blog.find({ isActive: true, isFeatured: true })
+    const blogs = await Blog.find({ 
+      isActive: true, 
+      isFeatured: true,
+      status: 'published'
+    })
       .populate('writer', 'name email image bio')
       .populate('comments')
-      .sort({ createdAt: -1 })
+      .sort({ publishedAt: -1 })
       .limit(limit);
       
-    
     res.json(blogs);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Get trending blogs
+router.get('/trending', async (req, res) => {
+  try {
+    const blogs = await Blog.find({ 
+      status: 'published',
+      isActive: true 
+    })
+      .populate('writer', 'name email image bio')
+      .sort({ views: -1, likes: -1 })
+      .limit(6);
+    res.json(blogs);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Get recent blogs
+router.get('/recent', async (req, res) => {
+  try {
+    const blogs = await Blog.find({ 
+      status: 'published',
+      isActive: true 
+    })
+      .populate('writer', 'name email image bio')
+      .sort({ publishedAt: -1 })
+      .limit(6);
+    res.json(blogs);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Get blog by slug (public)
+router.get('/slug/:slug', async (req, res) => {
+  try {
+    const blog = await Blog.findOne({ 
+      slug: req.params.slug,
+      status: 'published',
+      isActive: true 
+    }).populate('writer', 'name email image bio socialLinks');
+
+    if (!blog) {
+      return res.status(404).json({ message: 'Blog not found' });
+    }
+
+    // Increment view count
+    blog.views += 1;
+    await blog.save();
+
+    // Add social interaction data if user is authenticated
+    if (req.headers.authorization) {
+      try {
+        const token = req.headers.authorization.split(' ')[1];
+        const jwt = require('jsonwebtoken');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        
+        const { User } = require('../models/user');
+        const user = await User.findById(decoded.userId);
+        
+        if (user) {
+          // Add user interaction status
+          blog.isLiked = blog.likes.includes(user._id);
+          blog.isBookmarked = user.bookmarks.some(bookmark => bookmark.blog.equals(blog._id));
+          blog.isFollowing = user.following.some(follow => follow.user.equals(blog.writer._id));
+          
+          // Add reading progress
+          const readingHistory = user.readingHistory.find(history => history.blog.equals(blog._id));
+          blog.readingProgress = readingHistory ? readingHistory.progress : 0;
+          
+          // Update reading history
+          await user.addReadingHistory(blog._id, 0);
+        }
+      } catch (error) {
+        // Token invalid or expired, continue without user data
+        console.log('Token validation failed:', error.message);
+      }
+    }
+
+    res.json(blog);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Get related blogs
+router.get('/related/:blogId', async (req, res) => {
+  try {
+    const blog = await Blog.findById(req.params.blogId);
+    if (!blog) {
+      return res.status(404).json({ message: 'Blog not found' });
+    }
+
+    const relatedBlogs = await Blog.find({
+      _id: { $ne: blog._id },
+      category: blog.category,
+      status: 'published',
+      isActive: true
+    })
+      .populate('writer', 'name email image bio')
+      .sort({ publishedAt: -1 })
+      .limit(3);
+
+    res.json(relatedBlogs);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Get blogs by user
+router.get('/user/:userId', async (req, res) => {
+  try {
+    const blogs = await Blog.find({
+      writer: req.params.userId,
+      status: 'published',
+      isActive: true
+    })
+      .populate('writer', 'name email image bio')
+      .sort({ publishedAt: -1 });
+
+    res.json(blogs);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Search blogs
+router.get('/search', async (req, res) => {
+  try {
+    const { q, category, sort, date, readTime, page = 1, limit = 12 } = req.query;
+    
+    let query = { status: 'published', isActive: true };
+    
+    // Search query
+    if (q) {
+      query.$text = { $search: q };
+    }
+    
+    // Category filter
+    if (category) {
+      query.category = category;
+    }
+    
+    // Date filter
+    if (date) {
+      const now = new Date();
+      let dateFilter;
+      
+      switch (date) {
+        case 'day':
+          dateFilter = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+          break;
+        case 'week':
+          dateFilter = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          break;
+        case 'month':
+          dateFilter = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+          break;
+        case 'year':
+          dateFilter = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+          break;
+        default:
+          dateFilter = null;
+      }
+      
+      if (dateFilter) {
+        query.publishedAt = { $gte: dateFilter };
+      }
+    }
+    
+    // Read time filter
+    if (readTime) {
+      switch (readTime) {
+        case 'short':
+          query.estimatedReadTime = { $lt: 5 };
+          break;
+        case 'medium':
+          query.estimatedReadTime = { $gte: 5, $lte: 15 };
+          break;
+        case 'long':
+          query.estimatedReadTime = { $gt: 15 };
+          break;
+      }
+    }
+    
+    // Sort options
+    let sortOption = { publishedAt: -1 };
+    if (sort) {
+      switch (sort) {
+        case 'date':
+          sortOption = { publishedAt: -1 };
+          break;
+        case 'views':
+          sortOption = { views: -1 };
+          break;
+        case 'likes':
+          sortOption = { likes: -1 };
+          break;
+        case 'readTime':
+          sortOption = { estimatedReadTime: 1 };
+          break;
+        case 'relevance':
+          if (q) {
+            sortOption = { score: { $meta: 'textScore' } };
+          }
+          break;
+      }
+    }
+    
+    const skip = (page - 1) * limit;
+    
+    const blogs = await Blog.find(query)
+      .populate('writer', 'name email image bio')
+      .sort(sortOption)
+      .skip(skip)
+      .limit(parseInt(limit));
+    
+    const total = await Blog.countDocuments(query);
+    
+    res.json({
+      blogs,
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / limit)
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -496,73 +728,6 @@ router.post('/:id/share', async (req, res) => {
   }
 });
 
-// Import blog scheduler service
-const blogSchedulerService = require('../services/blogSchedulerService');
 
-// Process scheduled posts (can be called by a cron job)
-router.post('/process-scheduled', async (req, res) => {
-  try {
-    await blogSchedulerService.checkAndPublishScheduledBlogs();
-    res.json({ message: 'Scheduled posts processing completed' });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// Schedule a blog for future publication
-router.post('/:id/schedule', async (req, res) => {
-  try {
-    const { scheduledDate } = req.body;
-    
-    if (!scheduledDate) {
-      return res.status(400).json({ message: 'Scheduled date is required' });
-    }
-
-    const scheduledBlog = await blogSchedulerService.scheduleBlog(req.params.id, scheduledDate);
-    res.json(scheduledBlog);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// Cancel a scheduled blog
-router.post('/:id/cancel-schedule', async (req, res) => {
-  try {
-    const cancelledBlog = await blogSchedulerService.cancelScheduledBlog(req.params.id);
-    res.json(cancelledBlog);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// Get all scheduled blogs
-router.get('/scheduled/all', async (req, res) => {
-  try {
-    const scheduledBlogs = await blogSchedulerService.getScheduledBlogs();
-    res.json(scheduledBlogs);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// Get next scheduled blog
-router.get('/scheduled/next', async (req, res) => {
-  try {
-    const nextBlog = await blogSchedulerService.getNextScheduledBlog();
-    res.json(nextBlog);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// Get scheduler status
-router.get('/scheduler/status', async (req, res) => {
-  try {
-    const status = blogSchedulerService.getStatus();
-    res.json(status);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
 
 module.exports = router;

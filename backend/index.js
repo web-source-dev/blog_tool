@@ -25,6 +25,8 @@ const connectDB = async () => {
 connectDB();
 const blogsRoute = require("./routes/blog");
 const writersRoute = require("./routes/writers");
+const authRoute = require("./routes/auth");
+const socialRoute = require("./routes/social");
 
 app.get("/status", (req, res) => {
     res.send("Server is running");
@@ -32,6 +34,8 @@ app.get("/status", (req, res) => {
 
 app.use("/api/blogs", blogsRoute);
 app.use("/api/writers", writersRoute);
+app.use("/api/auth", authRoute);
+app.use("/api/social", socialRoute);
 
 const PORT = process.env.PORT || 5000;
 

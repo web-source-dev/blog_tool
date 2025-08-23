@@ -27,7 +27,8 @@ const BlogSchema = new mongoose.Schema({
 
   // Engagement
   views: { type: Number, default: 0 },
-  likes: { type: Number, default: 0 },
+  likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+  bookmarks: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   shares: { type: Number, default: 0 },
   comments: [{ type: mongoose.Schema.Types.ObjectId, ref: "Comment" }],
 
@@ -74,14 +75,66 @@ BlogSchema.pre('save', function(next) {
   next();
 });
 
+// Virtual for like count
+BlogSchema.virtual('likeCount').get(function() {
+  return this.likes.length;
+});
+
+// Virtual for bookmark count
+BlogSchema.virtual('bookmarkCount').get(function() {
+  return this.bookmarks.length;
+});
+
+// Virtual for comment count
+BlogSchema.virtual('commentCount').get(function() {
+  return this.comments.length;
+});
+
+// Instance method to add like
+BlogSchema.methods.addLike = function(userId) {
+  if (!this.likes.includes(userId)) {
+    this.likes.push(userId);
+    return this.save();
+  }
+  return Promise.resolve(this);
+};
+
+// Instance method to remove like
+BlogSchema.methods.removeLike = function(userId) {
+  this.likes = this.likes.filter(id => !id.equals(userId));
+  return this.save();
+};
+
+// Instance method to add bookmark
+BlogSchema.methods.addBookmark = function(userId) {
+  if (!this.bookmarks.includes(userId)) {
+    this.bookmarks.push(userId);
+    return this.save();
+  }
+  return Promise.resolve(this);
+};
+
+// Instance method to remove bookmark
+BlogSchema.methods.removeBookmark = function(userId) {
+  this.bookmarks = this.bookmarks.filter(id => !id.equals(userId));
+  return this.save();
+};
+
+// Instance method to add comment
+BlogSchema.methods.addComment = function(commentId) {
+  if (!this.comments.includes(commentId)) {
+    this.comments.push(commentId);
+    return this.save();
+  }
+  return Promise.resolve(this);
+};
+
+// Instance method to remove comment
+BlogSchema.methods.removeComment = function(commentId) {
+  this.comments = this.comments.filter(id => !id.equals(commentId));
+  return this.save();
+};
+
 const Blog = mongoose.model("Blog", BlogSchema);
 
-// Comment Schema
-const CommentSchema = new mongoose.Schema({
-  blog: { type: mongoose.Schema.Types.ObjectId, ref: "Blog", required: true },
-  content: { type: String, required: true },
-}, { timestamps: true });
-
-const Comment = mongoose.model("Comment", CommentSchema);
-
-module.exports = {Blog, Comment };
+module.exports = { Blog };

@@ -5,7 +5,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "nodemon index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "seed": "node seeder.js"
   },
   "keywords": [],
   "author": "",
@@ -13,11 +14,13 @@
   "description": "",
   "dependencies": {
     "@getbrevo/brevo": "^3.0.1",
+    "bcryptjs": "^2.4.3",
     "body-parser": "^2.2.0",
     "cloudinary": "^1.41.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
     "moment-timezone": "^0.5.48",
     "mongoose": "^8.17.0",
     "multer": "^2.0.2",
